@@ -79,7 +79,6 @@ public:
 	}
 private:
 	bool parse_containerd(const runtime::v1alpha2::ContainerStatusResponse& status, sinsp_container_info *container);
-	bool parse_cri(sinsp_container_info *container, const libsinsp::async_cgroup::delayed_cgroup_key& key);
 	void run_impl() override;
 
 	libsinsp::async_cgroup::delayed_cgroup_lookup m_async_cgroups;
@@ -95,6 +94,8 @@ public:
 	static void set_cri_socket_path(const std::string& path);
 	static void set_cri_timeout(int64_t timeout_ms);
 	static void set_extra_queries(bool extra_queries);
+	static void set_async(bool async);
+	static void set_async_limits(bool async_limits);
 
 private:
 	cri_async_source m_cri_info_source;

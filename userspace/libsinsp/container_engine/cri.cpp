@@ -44,6 +44,11 @@ using namespace libsinsp::runc;
 constexpr const uint64_t cri_async_source::CGROUP_LOOKUP_DELAY_MS;
 
 namespace {
+// use asynchronous lookups?
+bool s_async = true;
+// get resource limits asynchronously?
+bool s_async_limits = true;
+
 bool init_cri()
 {
 	if(s_cri || s_cri_unix_socket_path.empty()) {
@@ -198,7 +203,7 @@ bool cri_async_source::parse_cri(sinsp_container_info *container, const libsinsp
 	container->m_cpu_quota = limits.m_cpu_quota;
 	container->m_cpu_period = limits.m_cpu_period;
 
-	if(!found_all)
+	if(s_async_limits && !found_all)
 	{
 		g_logger.format(sinsp_logger::SEV_DEBUG,
 			"cri (%s) not all limits read from cgroups, will retry in %d ms",
@@ -271,8 +276,17 @@ void cri::set_cri_timeout(int64_t timeout_ms)
 	s_cri_timeout = timeout_ms;
 }
 
-void cri::set_extra_queries(bool extra_queries) {
+void cri::set_extra_queries(bool extra_queries)
+{
 	s_cri_extra_queries = extra_queries;
+}
+
+void cri::set_async(bool async) {
+	s_async = async;
+}
+
+void cri::set_async_limits(bool async_limits) {
+	s_async_limits = async_limits;
 }
 
 bool cri::resolve(sinsp_container_manager* manager, sinsp_threadinfo* tinfo, bool query_os_for_missing_info)
@@ -299,16 +313,31 @@ bool cri::resolve(sinsp_container_manager* manager, sinsp_threadinfo* tinfo, boo
 
 		if (query_os_for_missing_info)
 		{
-			g_logger.format(sinsp_logger::SEV_DEBUG,
-					"cri (%s): Performing lookup",
-					container_id.c_str());
-
 			libsinsp::async_cgroup::delayed_cgroup_key key(
 				container_id,
 				tinfo->get_cgroup("cpu"),
 				tinfo->get_cgroup("memory"));
+			if(s_async)
+			{
+				m_cri_info_source.lookup_container(key, manager);
+			}
+			else
+			{
+				g_logger.format(sinsp_logger::SEV_DEBUG,
+						"cri (%s): Performing sync lookup",
+						container_id.c_str());
 
-			m_cri_info_source.lookup_container(key, manager);
+				container_info->m_successful = m_cri_info_source.parse_cri(
+					container_info, key);
+
+				g_logger.format(sinsp_logger::SEV_DEBUG,
+					"cri (%s) sync lookup done, successful=%s",
+					container_id.c_str(), container_info->m_successful ? "true" : "false");
+
+				container_info->m_metadata_complete = true;
+				manager->add_container(*container_info, tinfo);
+				manager->notify_new_container(*container_info);
+			}
 		}
 		if (mesos::set_mesos_task_id(container_info, tinfo))
 		{
